@@ -2,7 +2,7 @@ maintainer        "edelight GmbH"
 maintainer_email  "markus.korn@edelight.de"
 license           "Apache 2.0"
 description       "Installs and configures mongodb"
-version           "0.11"
+version           "0.11.4"
 
 recipe "mongodb", "Installs and configures a single node mongodb instance"
 recipe "mongodb::10gen_repo", "Adds the 10gen repo to get the latest packages"
@@ -11,11 +11,14 @@ recipe "mongodb::configserver", "Installs and configures a configserver for mong
 recipe "mongodb::shard", "Installs and configures a single shard"
 recipe "mongodb::replicaset", "Installs and configures a mongodb replicaset"
 
-depends "apt"
 
-%w{ ubuntu debian }.each do |os|
+%w{ ubuntu debian redhat fedora centos }.each do |os|
   supports os
 end
+
+depends "apt"
+depends "yum"
+depends "chef_gem_prereqs"
 
 attribute "mongodb/dbpath",
   :display_name => "dbpath",
@@ -51,12 +54,3 @@ attribute "mongodb/sharded_collections",
   :display_name => "Sharded Collections",
   :description => "collections to shard",
   :default => {}
-
-attribute "mongodb/replicaset_name",
-  :display_name => "Replicaset_name",
-  :description => "Name of a mongodb replicaset",
-  :default => nil
-  
-attribute "mongodb/enable_rest",
-  :display_name => "Enable Rest",
-  :description => "Enable the ReST interface of the webserver"

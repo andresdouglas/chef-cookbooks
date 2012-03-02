@@ -21,11 +21,16 @@
 
 define :mongodb_instance, :mongodb_type => "mongod" , :action => [:enable, :start], :port => 27017 , \
     :logpath => "/var/log/mongodb", :dbpath => "/data", :configfile => "/etc/mongodb.conf", \
-    :configserver => [], :replicaset => nil, :enable_rest => false, \
-    :notifies => [] do
-    
-  include_recipe "mongodb::default"
+    :configserver => [], :replicaset => nil, :notifies => [] do
   
+   
+  include_recipe "mongodb::default"
+
+#  gem_package pkg do
+#      action :nothing
+#  end
+
+
   name = params[:name]
   type = params[:mongodb_type]
   service_action = params[:action]
@@ -42,28 +47,10 @@ define :mongodb_instance, :mongodb_type => "mongod" , :action => [:enable, :star
   configserver_nodes = params[:configserver]
   
   replicaset = params[:replicaset]
-  if type == "shard"
-    if replicaset.nil?
-      replicaset_name = nil
-    else
-      # for replicated shards we autogenerate the replicaset name for each shard
-      replicaset_name = "rs_#{replicaset['mongodb']['shard_name']}"
-    end
-  else
-    # if there is a predefined replicaset name we use it,
-    # otherwise we try to generate one using 'rs_$SHARD_NAME'
-    begin
-      replicaset_name = replicaset['mongodb']['replicaset_name']
-    rescue
-      replicaset_name = nil
-    end
-    if replicaset_name.nil?
-      begin
-        replicaset_name = "rs_#{replicaset['mongodb']['shard_name']}"
-      rescue
-        replicaset_name = nil
-      end
-    end
+  begin
+    replicaset_name = "rs_#{replicaset['mongodb']['shard_name']}" # Looks weird, but we need just some name
+  rescue
+    replicaset_name = nil
   end
   
   if !["mongod", "shard", "configserver", "mongos"].include?(type)
@@ -79,7 +66,8 @@ define :mongodb_instance, :mongodb_type => "mongod" , :action => [:enable, :star
     daemon = "/usr/bin/mongos"
     configfile = nil
     dbpath = nil
-    configserver = configserver_nodes.collect{|n| "#{n['fqdn']}:#{n['mongodb']['port']}" }.join(",")
+    configserver = configserver_nodes.collect{|n| "#{n['fqdn']}:#{n['mongodb']['port']}" }.sort.join(",")
+    #configserver = configserver_nodes.collect{|n| "#{n['cloud.private_ips']}:#{n['mongodb']['port']}" }.join(",")
   end
   
   # default file
@@ -99,8 +87,7 @@ define :mongodb_instance, :mongodb_type => "mongod" , :action => [:enable, :star
       "dbpath" => dbpath,
       "replicaset_name" => replicaset_name,
       "configsrv" => false, #type == "configserver", this might change the port
-      "shardsrv" => false,  #type == "shard", dito.
-      "enable_rest" => params[:enable_rest]
+      "shardsrv" => false  #type == "shard", dito.
     )
     notifies :restart, "service[#{name}]"
   end
@@ -111,7 +98,6 @@ define :mongodb_instance, :mongodb_type => "mongod" , :action => [:enable, :star
     group "mongodb"
     mode "0755"
     action :create
-    recursive true
   end
   
   if type != "mongos"
@@ -121,19 +107,57 @@ define :mongodb_instance, :mongodb_type => "mongod" , :action => [:enable, :star
       group "mongodb"
       mode "0755"
       action :create
-      recursive true
     end
   end
+
+  if ["redhat", "centos", "scientific"].member?(node[:platform]) 
   
-  # init script
-  template "/etc/init.d/#{name}" do
-    action :create
-    source "mongodb.init.erb"
-    group "root"
-    owner "root"
-    mode "0755"
-    variables :provides => name
-    notifies :restart, "service[#{name}]"
+    # init script for Red Hat/CentOS/Scientific Linux
+    cookbook_file "/etc/init.d/#{name}" do
+      action :create
+      source "redhat.init"
+      group "root"
+      owner "root"
+      mode "0755"
+      notifies :restart, "service[#{name}]"
+    end
+  
+    # mongodb.conf for Red Hat/CentOS/Scientific Linux
+    cookbook_file "/etc/mongodb.conf" do
+      action :create
+      source "redhat.mongodb.conf"
+      group "root"
+      owner "root"
+      mode "0755"
+      notifies :restart, "service[#{name}]"
+    end
+
+    # link "/etc/sysconfig/mongod"
+      # action :delete
+      # only_if "test -f /etc/sysconfig/mongod"
+    # end
+
+    link "/etc/sysconfig/mongod" do
+      to "/etc/default/#{name}"
+    end
+
+      ## try to use a symlink without having to cookbook_file the init script
+      # link "/etc/init.d/#{name}" do
+      # to "/etc/init.d/mongod"
+      # end
+
+  else
+  
+    # init script for Debian/Ubuntu
+    cookbook_file "/etc/init.d/#{name}" do
+      action :create
+      source "debian.init"
+      group "root"
+      owner "root"
+      mode "0755"
+      notifies :restart, "service[#{name}]"
+    end
+
   end
   
   # service
@@ -145,7 +169,7 @@ define :mongodb_instance, :mongodb_type => "mongod" , :action => [:enable, :star
       notifies :create, "ruby_block[config_replicaset]"
     end
     if type == "mongos"
-      notifies :create, "ruby_block[config_sharding]", :immediately
+      notifies :create, "ruby_block[config_sharding]"
     end
     if name == "mongodb"
       # we don't care about a running mongodb service in these cases, all we need is stopping it
@@ -162,10 +186,14 @@ define :mongodb_instance, :mongodb_type => "mongod" , :action => [:enable, :star
        mongodb_shard_name:#{replicaset['mongodb']['shard_name']} AND \
        chef_environment:#{replicaset.chef_environment}"
     )
-  
+    if !rs_nodes.any? { |n| n['hostname'] == node['hostname'] }
+        rs_nodes << node
+    end
+    
     ruby_block "config_replicaset" do
       block do
         if not replicaset.nil?
+        Chef::Log.info("About to call configure_replicaset")
           MongoDB.configure_replicaset(replicaset, replicaset_name, rs_nodes)
         end
       end

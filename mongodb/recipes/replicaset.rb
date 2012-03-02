@@ -27,6 +27,5 @@ if !node.recipes.include?("mongodb::shard")
     logpath      node['mongodb']['logpath']
     dbpath       node['mongodb']['dbpath']
     replicaset   node
-    enable_rest  node['mongodb']['enable_rest']
   end
 end

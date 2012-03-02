@@ -29,12 +29,7 @@ class Chef::ResourceDefinitionList::MongoDB
     require 'mongo'
     
     if members.length == 0
-      if Chef::Config[:solo]
-        abort("Cannot configure replicaset '#{name}', no member nodes found")
-      else
-        Chef::Log.warn("Cannot configure replicaset '#{name}', no member nodes found")
-        return
-      end
+      abort("cannot configure replicaset '#{name}', no member nodes found")
     end
     
     begin
@@ -49,6 +44,7 @@ class Chef::ResourceDefinitionList::MongoDB
     members.each_index do |n|
       port = members[n]['mongodb']['port']
       rs_members << {"_id" => n, "host" => "#{members[n]['fqdn']}:#{port}"}
+      # rs_members << {"_id" => n, "host" => "#{members[n]['cloud.private_ips']}:#{port}"}
     end
     
     Chef::Log.info(
@@ -76,10 +72,21 @@ class Chef::ResourceDefinitionList::MongoDB
     end
     if result.fetch("ok", nil) == 1
       # everything is fine, do nothing
-    elsif result.fetch("errmsg", nil) == "already initialized"
+#    elsif result.fetch("errmsg", nil) == "already initialized"
+    elsif (result.fetch("errmsg", nil).include? "already initiated") || (result.fetch("errmsg", nil).include? "already initialized")
+      Chef::Log.info("The replicaset is already initialized.  We might need to clean up the member list")
       # check if both configs are the same
-      config = connection['local']['system']['replset'].find_one({"_id" => name})
-      if config['_id'] == name and config['members'] == rs_members
+      tmember = rs_members.collect{ |m| m['host'].split(":")}
+      Chef::Log.info("planning to connect to #{tmember}")
+      rs_connection = Mongo::ReplSetConnection.new(*rs_members.collect{ |m| m['host'].split(":")} )
+      config = rs_connection['local']['system']['replset'].find_one({"_id" => name})
+
+      rs_hosts = rs_members.collect { |member| member['host']}.sort
+      rs_hosts = rs_hosts.sort
+      chosts =  config['members'].collect { |member| member['host']}.sort
+      chosts = chosts.sort
+      
+      if config['_id'] == name and rs_hosts == chosts
         # config is up-to-date, do nothing
         Chef::Log.info("Replicaset '#{name}' already configured")
       elsif config['_id'] == name and config['members'] == rs_member_ips
@@ -92,6 +99,7 @@ class Chef::ResourceDefinitionList::MongoDB
             ip, prt = mem_h['host'].split(":")
             if ip == n['ipaddress']
               mapping["#{ip}:#{prt}"] = "#{n['fqdn']}:#{prt}"
+              # mapping["#{ip}:#{prt}"] = "#{n['cloud.private_ips']}:#{prt}"
             end
           end
         end
@@ -115,6 +123,7 @@ class Chef::ResourceDefinitionList::MongoDB
           Chef::Log.error("configuring replicaset returned: #{result.inspect}")
         end
       else
+        Chef::Log.info("The replicaset config is out of date.  Adding and removing as needed")
         # remove removed members from the replicaset and add the new ones
         max_id = config['members'].collect{ |member| member['_id']}.max
         rs_members.collect!{ |member| member['host'] }
@@ -144,7 +153,10 @@ class Chef::ResourceDefinitionList::MongoDB
           Chef::Log.info("New config successfully applied: #{config.inspect}")
         end
         if !result.nil?
-          Chef::Log.error("configuring replicaset returned: #{result.inspect}")
+          if result.fetch("ok", nil) == 1
+          else
+            Chef::Log.error("Add/Remove nodes - configuring replicaset returned: #{result.inspect}")
+	  end
         end
       end
     elsif !result.fetch("errmsg", nil).nil?
@@ -166,6 +178,7 @@ class Chef::ResourceDefinitionList::MongoDB
         key = '_single'
       end
       shard_groups[key] << "#{n['fqdn']}:#{n['mongodb']['port']}"
+      # shard_groups[key] << "#{n['cloud.private_ips']}:#{n['mongodb']['port']}"
     end
     Chef::Log.info(shard_groups.inspect)
     

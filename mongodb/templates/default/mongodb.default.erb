@@ -16,10 +16,12 @@ DAEMON_OPTS=""
 <%= @configsrv ? "DAEMON_OPTS=\"$DAEMON_OPTS --configsvr\"" : "" %>
 <%= @shardsrv ? "DAEMON_OPTS=\"$DAEMON_OPTS --shardsvr\"" : "" %>
 
+<% if node.chef_environment != "production" -%>
+DAEMON_OPTS="$DAEMON_OPTS -v"
+<% else -%>
+DAEMON_OPTS="$DAEMON_OPTS --quiet"
+<% end -%>
+
 <% if @replicaset_name %>
 DAEMON_OPTS="$DAEMON_OPTS --replSet <%= @replicaset_name %>"
-<% end %>
-
-<% if @enable_rest %>
-DAEMON_OPTS="$DAEMON_OPTS --rest"
 <% end %>

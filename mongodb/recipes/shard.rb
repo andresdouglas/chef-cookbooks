@@ -21,18 +21,24 @@
 
 include_recipe "mongodb::default"
 
-# disable and stop the default mongodb instance
-service "mongodb" do
-  supports :status => true, :restart => true
-  action [:disable, :stop]
+case node[:platform]
+when "centos","redhat"
+	# disable and stop the default mongodb instance
+	service "mongod" do
+	  supports :status => true, :restart => true
+	  action [:disable, :stop]
+	end
+
+when "debian","ubuntu"
+	# disable and stop the default mongodb instance
+	service "mongodb" do
+	  supports :status => true, :restart => true
+	  action [:disable, :stop]
+	end
 end
 
 is_replicated = node.recipes.include?("mongodb::replicaset")
 
-
-# we are not starting the shard service with the --shardsvr
-# commandline option because right now this only changes the port it's
-# running on, and we are overwriting this port anyway.
 mongodb_instance "shard" do
   mongodb_type "shard"
   port         node['mongodb']['port']
@@ -41,5 +47,5 @@ mongodb_instance "shard" do
   if is_replicated
     replicaset    node
   end
-  enable_rest node['mongodb']['enable_rest']
 end
+

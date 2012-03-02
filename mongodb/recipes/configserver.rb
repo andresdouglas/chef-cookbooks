@@ -21,18 +21,25 @@
 
 include_recipe "mongodb"
 
-service "mongodb" do
-  supports :status => true, :restart => true
-  action [:disable, :stop]
+case node[:platform]
+when "centos","redhat"
+        # disable and stop the default mongodb instance
+        service "mongod" do
+          supports :status => true, :restart => true
+          action [:disable, :stop]
+        end
+
+when "debian","ubuntu"
+        # disable and stop the default mongodb instance
+        service "mongodb" do
+          supports :status => true, :restart => true
+          action [:disable, :stop]
+        end
 end
 
-# we are not starting the configserver service with the --configsvr
-# commandline option because right now this only changes the port it's
-# running on, and we are overwriting this port anyway.
 mongodb_instance "configserver" do
   mongodb_type "configserver"
   port         node['mongodb']['port']
   logpath      node['mongodb']['logpath']
   dbpath       node['mongodb']['dbpath']
-  enable_rest  node['mongodb']['enable_rest']
 end

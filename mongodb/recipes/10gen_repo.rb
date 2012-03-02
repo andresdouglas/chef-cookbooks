@@ -25,6 +25,7 @@
 case node['platform']
 when "debian", "ubuntu"
   # Adds the repo: http://www.mongodb.org/display/DOCS/Ubuntu+and+Debian+packages
+  Chef::Log.debug("Adding the #{node['platform']} 10gen repository w/ apt")
   execute "apt-get update" do
     action :nothing
   end
@@ -42,6 +43,31 @@ when "debian", "ubuntu"
   package "mongodb" do
     package_name "mongodb-10gen"
   end
+when "centos","redhat","scientific"
+  # Adds the repo: http://www.mongodb.org/display/DOCS/CentOS+and+Fedora+Packages
+  Chef::Log.debug("Adding the #{node['platform']} 10gen repository w/ yum")
+  include_recipe "yum"
+
+  yum_repository "10gen" do
+    Chef::Log.debug("Defining 10gen repository for yum")
+    description "10gen MongoDB repo"
+    url "http://downloads-distro.mongodb.org/repo/redhat/os/#{node[:kernel][:machine]}"
+    failovermethod "priority"
+    action :add
+  end
+
+  package "mongodb" do
+    Chef::Log.debug("Linking our package name to the 10gen repo name")
+    package_name "mongo-10gen-server"
+  end
+
+  yum_package "mongo-10gen-server" do
+    Chef::Log.debug("Installing package mongodb w/ yum")
+    action :install
+  end
+
+  Chef::Log.debug("Added the #{node['platform']} 10gen repository w/ yum")
+  #end redhat/centos/scientific block
 else
     Chef::Log.warn("Adding the #{node['platform']} 10gen repository is not yet not supported by this cookbook")
 end
